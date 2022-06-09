@@ -1,4 +1,3 @@
-use cosmwasm_std::{Uint64};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use crate::state::{Entry, Priority, Status};
@@ -12,21 +11,21 @@ pub struct InstantiateMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     NewEntry {description: String, priority: Option<Priority>},
-    UpdateEntry { id: Uint64, description: Option<String>, status: Option<Status>, priority: Option<Priority> },
-    DeleteEntry { id: Uint64 }
+    UpdateEntry { id: u64, description: Option<String>, status: Option<Status>, priority: Option<Priority> },
+    DeleteEntry { id: u64 }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    QueryEntry {id: Uint64},
+    QueryEntry {id: u64},
     QueryList {start_after: Option<u64>, limit: Option<u32>},
 }
 
 // We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct EntryResponse {
-    pub id: Uint64,
+    pub id: u64,
     pub description: String,
     pub status: Status,
     pub priority: Priority,

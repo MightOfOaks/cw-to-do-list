@@ -1,7 +1,7 @@
 use std::ops::Add;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint64, Order};
+use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Order};
 use cw2::set_contract_version;
 use cw_storage_plus::Bound;
 
@@ -9,8 +9,8 @@ use crate::error::ContractError;
 use crate::msg::{EntryResponse, ExecuteMsg, InstantiateMsg, ListResponse, QueryMsg};
 use crate::state::{Config, CONFIG, Entry, ENTRY_SEQ, LIST, Priority, Status};
 
-// version info for migration info
-const CONTRACT_NAME: &str = "crates.io:to-do-list";
+// version info for migration
+const CONTRACT_NAME: &str = "crates.io:cw-to-do-list";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -32,7 +32,7 @@ pub fn instantiate(
     };
     CONFIG.save(deps.storage, &config)?;
 
-    ENTRY_SEQ.save(deps.storage, &Uint64::zero())?;
+    ENTRY_SEQ.save(deps.storage, &0u64)?;
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -48,8 +48,8 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::NewEntry {description, priority} => create_new_entry(deps, info, description, priority),
-        ExecuteMsg::UpdateEntry {id, description, status, priority } => update_entry (deps, info, id, description, status, priority),
-        ExecuteMsg::DeleteEntry {id} => delete_entry (deps, info, id)
+        ExecuteMsg::UpdateEntry {id, description, status, priority } => update_entry(deps, info, id, description, status, priority),
+        ExecuteMsg::DeleteEntry {id} => delete_entry(deps, info, id)
     }
 }
 
@@ -59,7 +59,7 @@ pub fn create_new_entry(deps: DepsMut, info: MessageInfo, description: String, p
         return Err(ContractError::Unauthorized {});
     }
     let id = ENTRY_SEQ.update::<_, cosmwasm_std::StdError>(deps.storage, |id| {
-        Ok(id.add(Uint64::new(1)))
+        Ok(id.add(1))
     })?;
     let new_entry = Entry {
         id,
@@ -67,35 +67,38 @@ pub fn create_new_entry(deps: DepsMut, info: MessageInfo, description: String, p
         priority: priority.unwrap_or(Priority::None),
         status: Status::ToDo
     };
-    LIST.save(deps.storage, id.u64(), &new_entry)?;
-    Ok(Response::new().add_attribute("method", "create_new_entry"))
+    LIST.save(deps.storage, id, &new_entry)?;
+    Ok(Response::new().add_attribute("method", "create_new_entry")
+        .add_attribute("new_entry_id", id.to_string()))
 }
 
-pub fn update_entry (deps: DepsMut, info: MessageInfo, id: Uint64, description: Option<String>, status: Option<Status>, priority: Option<Priority>) -> Result<Response, ContractError> {
+pub fn update_entry(deps: DepsMut, info: MessageInfo, id: u64, description: Option<String>, status: Option<Status>, priority: Option<Priority>) -> Result<Response, ContractError> {
     let owner = CONFIG.load(deps.storage)?.owner;
     if info.sender != owner {
         return Err(ContractError::Unauthorized {});
     }
 
-    let entry = LIST.load(deps.storage, id.u64())?;
+    let entry = LIST.load(deps.storage, id)?;
     let updated_entry = Entry {
         id,
         description: description.unwrap_or(entry.description),
         status: status.unwrap_or(entry.status),
         priority: priority.unwrap_or(entry.priority),
     };
-    LIST.save(deps.storage, id.u64(), &updated_entry)?;
-    Ok(Response::new().add_attribute("method", "update_entry"))
+    LIST.save(deps.storage, id, &updated_entry)?;
+    Ok(Response::new().add_attribute("method", "update_entry")
+                      .add_attribute("updated_entry_id", id.to_string()))
 }
 
-pub fn delete_entry (deps: DepsMut, info: MessageInfo, id: Uint64) -> Result<Response, ContractError> {
+pub fn delete_entry(deps: DepsMut, info: MessageInfo, id: u64) -> Result<Response, ContractError> {
     let owner = CONFIG.load(deps.storage)?.owner;
     if info.sender != owner {
         return Err(ContractError::Unauthorized {});
     }
 
-    LIST.remove(deps.storage, id.u64());
-    Ok(Response::new().add_attribute("method", "delete_entry"))
+    LIST.remove(deps.storage, id);
+    Ok(Response::new().add_attribute("method", "delete_entry")
+                      .add_attribute("deleted_entry_id", id.to_string()))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -106,8 +109,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-fn query_entry(deps: Deps, id: Uint64) -> StdResult<EntryResponse> {
-    let entry = LIST.load(deps.storage, id.u64())?;
+fn query_entry(deps: Deps, id: u64) -> StdResult<EntryResponse> {
+    let entry = LIST.load(deps.storage, id)?;
     Ok(EntryResponse { id: entry.id, description: entry.description, status: entry.status, priority: entry.priority })
 }
 
@@ -125,81 +128,9 @@ fn query_list(deps: Deps,
         .range(deps.storage, start, None, Order::Ascending)
         .take(limit)
         .collect();
+
     let result = ListResponse {
         entries: entries?.into_iter().map(|l| l.1.into()).collect(),
     };
     Ok(result)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use cosmwasm_std::testing::{mock_dependencies_with_balance, mock_env, mock_info};
-    use cosmwasm_std::{coins, from_binary};
-/*
-    #[test]
-    fn proper_initialization() {
-        let mut deps = mock_dependencies_with_balance(&coins(2, "token"));
-
-        let msg = InstantiateMsg { count: 17 };
-        let info = mock_info("creator", &coins(1000, "earth"));
-
-        // we can just call .unwrap() to assert this was a success
-        let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-        assert_eq!(0, res.messages.len());
-
-        // it worked, let's query the state
-        let res = query(deps.as_ref(), mock_env(), QueryMsg::GetCount {}).unwrap();
-        let value: CountResponse = from_binary(&res).unwrap();
-        assert_eq!(17, value.count);
-    }
-
-    #[test]
-    fn increment() {
-        let mut deps = mock_dependencies_with_balance(&coins(2, "token"));
-
-        let msg = InstantiateMsg { count: 17 };
-        let info = mock_info("creator", &coins(2, "token"));
-        let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-
-        // beneficiary can release it
-        let info = mock_info("anyone", &coins(2, "token"));
-        let msg = ExecuteMsg::Increment {};
-        let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-
-        // should increase counter by 1
-        let res = query(deps.as_ref(), mock_env(), QueryMsg::GetCount {}).unwrap();
-        let value: CountResponse = from_binary(&res).unwrap();
-        assert_eq!(18, value.count);
-    }
-
-    #[test]
-    fn reset() {
-        let mut deps = mock_dependencies_with_balance(&coins(2, "token"));
-
-        let msg = InstantiateMsg { count: 17 };
-        let info = mock_info("creator", &coins(2, "token"));
-        let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-
-        // beneficiary can release it
-        let unauth_info = mock_info("anyone", &coins(2, "token"));
-        let msg = ExecuteMsg::Reset { count: 5 };
-        let res = execute(deps.as_mut(), mock_env(), unauth_info, msg);
-        match res {
-            Err(ContractError::Unauthorized {}) => {}
-            _ => panic!("Must return unauthorized error"),
-        }
-
-        // only the original creator can reset the counter
-        let auth_info = mock_info("creator", &coins(2, "token"));
-        let msg = ExecuteMsg::Reset { count: 5 };
-        let _res = execute(deps.as_mut(), mock_env(), auth_info, msg).unwrap();
-
-        // should now be 5
-        let res = query(deps.as_ref(), mock_env(), QueryMsg::GetCount {}).unwrap();
-        let value: CountResponse = from_binary(&res).unwrap();
-        assert_eq!(5, value.count);
-    }
-
- */
 }

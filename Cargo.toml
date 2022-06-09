@@ -1,5 +1,5 @@
 [package]
-name = "to-do-list"
+name = "cw-to-do-list"
 version = "0.1.0"
 authors = ["Serkan Reis <serkanreis@gmail.com>"]
 edition = "2018"
